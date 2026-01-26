@@ -1,107 +1,51 @@
-Poppler, a PDF rendering library
+# Poppler-science: rich text extraction from (scientific) PDF files
 ================================
 
-This is Poppler, a library for rendering PDF files, and examining or
-modifying their structure.  Poppler originally came from the XPDF
-sources; please see the file [README-XPDF](README-XPDF) for the
-original xpdf-3.03 README.
+This is Poppler-science, an ongoing experiment to improve the exraction of rich text from PDF files. In this case, "rich text" refers to
+Unicode text, superscripts, subscripts, and high-level document structure (i.e., headers, footers, left and right margin text, and text that
+appears in tables and figures). Poppler-science is an experimental fork of the Poppler project (version 25.06.0), [README-Poppler](README-Poppler.md), which
+in turn came from XPDF; see [README-XPDF](README-XPDF) for the original xpdf-3.03 README. Like Poppler, Poppler-science is [licensed under the GPL](LICENSE.txt).
 
-Note that **Poppler is licensed under the GPL**, not the LGPL, so
-programs which call Poppler must be licensed under the GPL as well.
-See the section [History and GPL
-licensing](#history-and-gpl-licensing) for more information.
+The goal of Poppler-science is to accurately extract information from PDF files as quickly as possible. Benefits include improving the accuracy of retrieval augmented generation (RAG) applications and reducing false negatives when searching PDF files with text-based queries. To demonstrate proof-of-principle, a new version of pdftotext is provided by Poppler-science. Please note that the other Poppler utilities (i.e., pdftohtml, pdftoppm, etc.) have *not* been modified.
 
-# Source code
+## Unicode text extraction
+Doesn't Poppler (and every other PDF-to-text program) already extract Unicode characters from PDF files? 
 
-Poppler's source code is maintained as a Git repository in
-[`gitlab.freedesktop.org`][gitlab].  You can fork that repository and
-submit merge requests.
+The answer is, "sometimes".
 
-[gitlab]: https://gitlab.freedesktop.org/poppler/poppler
+For PDF files that contain pixel-based images, full-page optical character recognition (OCR) is needed to extract text. Neither Poppler-science nor Poppler performs full-page OCR and is *not* useful for extracting text from image-based PDFs (i.e., scanned documents). See tools like [Tesseract](https://github.com/tesseract-ocr) for extracting text from image-based PDF files. For PDF files that contain text information, most PDF-to-text tools only extract the text strings that are *reported* by the PDF file. These text strings can be (and often are) *different* than the strings *displayed* when the PDF file is graphically rendered. PDF creation software has the power to associate *any* Unicode value with *any* font glyph (and there are no checks to make sure that this mapping is correct).
 
-# Reporting bugs
+Why would a software package generate a PDF that contains embedded text that does not match the displayed text? This is a great question for which I do not know the answer! There are, however, many examples of embeded text *not* matching displayed text. This is problem, since most (all?) of the commonly available PDF-to-text software tools (e.g., ) explicitly trust the source PDF file to contain embedded Unicode text strings that match the text that will be graphically displayed.
 
-Please report bugs at
-https://gitlab.freedesktop.org/poppler/poppler/issues
+### Displayed != embedded text string example: Microsoft Word
+Using a modern version of Microsoft Word for MacOS (Version 16.105):
+- create a new document that contains a single word "difficult" in the "Aptos (Body)" font (which appears to be the default font circa early 2026)
+- Save this document in as a PDF file. 
+- Open this newly created PDF document in the MacOS "Preview" PDF viewer and copy the displayed word "difficult" to the clipboard.
+- Paste the clipboard contents into a new Microsoft Word document.
+- Instead of "difficult", you will see "di#icult".
+  
+What just happedened? When creating the PDF file, MS Word replaced the two adjacent "f" characters in "difficult" with a single Unicode character representing the "&#xFB00;" ligature (where a [ligature](https://en.wikipedia.org/wiki/Ligature_(writing)) contains multiple symbols/characters in a single font glyph). However, rather than embedding a valid Unicode code for "&#xFB00;" (= 0xFB00), MS Word embedded the Unicode symbol "#" (= 0x0023).
 
-If you want to report a rendering or parsing bug, or a missing PDF
-feature, please provide an example PDF file as an attachment to your
-bug report.  It really helps if you can minimize the PDF to only the
-items required to reproduce the bug or the missing feature, but it is
-not absolutely required.  **Please be careful** of publishing PDF
-files that you don't want other people to see, or files whose
-copyright does not allow redistribution; the bug tracker is a public
-resource and attachments are visible to everyone.
+Note that the choice to replace two characters "ff" with a single ligature character "&#xFB00;" is font dependent. If the above example is repeated using the "Times New Roman" font in MS Word, the resulting PDF file does *not* contain a ligature and the embedded text matches the displayed text (as expected).
 
-# Security
+### Displayed != embedded text string example: Scientific literature
+The final form for many (most?) scientific manuscripts is a PDF file. Scientific manuscripts often contain a mixture of many different Unicode symbol types (e.g., English, Greek, math symbols, etc.). When embedded characters don't match the displayed characters, the resulting extracted text can have dramatically different meaning. One example is when the displayed Greek symbol "&#x00B5;" (for micro) is embedded as "m". When this change happens in units of concentration (i.e., "3.3 &#x00B5;M"), the resulting translation error (i.e., "3.3 mM" instead of "3.3 &#x00B5;M") yields a *drastically* different concentration! Since both "&#x00B5;M" (micromolar) and "mM" (milimolar) are valid units of concentration, this error can be difficult to detect. There are recent research papers (Wei2025 and Moreira-Filho2025) that use OCR to correct these errors for symbols relevant to concentration units, but do not provide a more general solution for the diverse set of Unicode symbols that commonly appear in scientifc PDF files.
 
-Poppler is highly sensitive to security bugs, since it deals mainly
-with untrusted files downloaded from the Internet.
+### Poppler-science strategy for accurate Unicode symbol extraction
+As suggested in an internet post from 20XX, Poppler-science performs "per character" optical character recognition when extracting embedded text strings from PDF files. Unlike most existing pdf-to-text software tool, embedded Unicode values are not used. Instead each font glyph is internally rendered as a small bitmap image that is input to a multilayer perceptron algorithm to predict the corresponding Unicode value. Here are the details:
+- The multilayer perceptron algorithm is only envoked when a new font glyph is encountered. Prediction results are stored in memory to allow fast lookup of Unicode values for font glyphs previously encountered in the current PDF file.
+- The multilayer perceptron algorithm was trained by:
+  - Extracting all font glyphs from XXX Open Access files downloaded from PubMed Central (PMC).
+  - For each unique Unicode value, the set of PMC font glyphs were manually checked by visual inspection. Font glyphs that did not match Unicode value were excluded from the training set.
+  - A two-layer perceptron, each layer with XXX and XXX nodes in each layer, was trained using Pytorch on an Apple M3 Mac Studio.
+- The binary file of multilayer perceptron parameters (approximately 200 MB) are currently loaded from disk every time the Poppler-science pdftotext program is run.
+- The inference of the Unicode value from an internal font glyph bitmap is implemented in C++ and performed using the CPU (using SIMD vector instructions). As a result, there is *no* dependancy on Pytorch software or GPU hardware.
 
-If you find a crash in Poppler, or if a tool like
-Valgrind/asan/ubsan/msan detect a problem, please report a bug at
-https://gitlab.freedesktop.org/poppler/poppler/issues
+## Superscript and subscript extraction
 
-# Stable and unstable APIs
+## Document structure extraction
 
-Poppler provides stable, public APIs for its various front-ends, and
-an unstable API for Poppler's own internal use.  The following
-directories in Poppler's source tree have the **stable APIs**:
+# How to install Poppler-science
 
-* [cpp](cpp) - Stable C++ API for examining the structure of a PDF
-  file and rendering it to a raster image.
-
-* [glib](glib) - Stable C API with Glib/GObject idioms, to examine the
-  structure of a PDF file, and to render its pages to [Cairo]
-  contexts.
-
-* [qt5](qt5) - Stable C++ API with [Qt5] idioms, to examine the
-  structure of a PDF file, and to render its pages to `QPainter` or
-  `QImage` objects.
-
-**WARNING:** Poppler also provides direct access to its internals,
-since various tools historically use the C++ header files that came
-from XPDF and which became the basis for Poppler.
-
-* [poppler](poppler) - **UNSTABLE, INTERNAL C++ API** to operate
-  directly on Poppler's internal representation of PDF files.  *If you
-  use this API, you are on your own*.  This API may change at any
-  time, even among minor versions of Poppler!
-
-[Cairo]: https://www.cairographics.org/
-[Qt5]: https://www.qt.io/
-
-# History and GPL licensing
-
-Poppler is a fork of the xpdf PDF viewer developed by Derek Noonburg
-of Glyph and Cog, LLC.  The purpose of forking xpdf is twofold.
-First, we want to provide PDF rendering functionality as a shared
-library, to centralize the maintenance effort.  Today a number of
-applications incorporate the xpdf code base, and whenever a security
-issue is discovered, all these applications exchange patches and put
-out new releases.  In turn, all distributions must package and release
-new version of these xpdf based viewers.  It's safe to say that
-there's a lot of duplicated effort with the current situation.  Even if
-poppler in the short term introduces yet another xpdf derived code
-base to the world, we hope that over time these applications will
-adopt poppler.  After all, we only need one application to use poppler
-to break even.
-
-Second, we would like to move libpoppler forward in a number of areas
-that don't fit within the goals of xpdf.  By design, xpdf depends on
-very few libraries and runs a wide range of X based platforms.  This
-is a strong feature and reasonable design goal.  However, with poppler
-we would like to replace parts of xpdf that are now available as
-standard components of modern Unix desktop environments.  One such
-example is fontconfig, which solves the problem of matching and
-locating fonts on the system, in a standardized and well understood
-way.  Another example is cairo, which provides high quality 2D
-rendering.
-
-Please note that xpdf, and thus poppler, is licensed under the GPL,
-not the LGPL.  Consequently, any application using poppler must also
-be licensed under the GPL.  If you want to incorporate Xpdf based PDF
-rendering in a closed source product, please contact Glyph & Cog
-(www.glyphandcog.com) for commercial licensing options. Note that
-this only allows you to use xpdf in a closed source product,
-not poppler itself.
+# How to run Poppler-science: pdftotext
