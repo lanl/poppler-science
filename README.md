@@ -8,7 +8,7 @@ in turn came from XPDF; see [README-XPDF](README-XPDF) for the original xpdf-3.0
 
 The goal of Poppler-science is to accurately extract text-based information from PDF files as quickly as possible. Benefits include improving the accuracy of retrieval augmented generation (RAG) applications and reducing false negatives when searching PDF files with text-based queries. To demonstrate proof-of-principle, a new version of `pdftotext` is provided by Poppler-science. Please note that the other Poppler utilities (i.e., `pdftohtml`, `pdftoppm`, etc.) have *not* been modified.
 
-Key features of Poppler-science include:
+## Key features of Poppler-science include:
 - An integrated multilayer perceptron to predict Unicode values from *individual* font glyph bitmaps -- this is "per character" optical character recognition (OCR).
 - Superscript and subscript text identification based on text position and size using simple coding heuristics. 
 - Per-page text string ordering inference using single linkage clustering. 
@@ -17,14 +17,14 @@ Key features of Poppler-science include:
   - Footer
   - Left margin
   - Right margin
-  - "Data" -- which can be either a table or figure. While many scientific PDF files use bitmap-based figures, it is not uncommon for a bitmap to have a text overlay, which will be extracted.
+  - "Data" -- which can be either a table or figure. While many scientific PDF files use bitmap-based figures, it is not uncommon for a bitmap figure to also have a text overlay, which will be extracted.
 
 ### Please note that for PDF files that contain pixel-based images, full-page optical character recognition (OCR) is needed to extract text from these images. Neither Poppler-science nor Poppler performs full-page OCR and are *not* useful for extracting text from purely image-based PDFs (i.e., scanned documents). Checkout tools like [Tesseract](https://github.com/tesseract-ocr) for extracting text from bitmapped images.
 
-## Unicode text extraction
+## Accurate Unicode text extraction
 Doesn't Poppler (and [every other PDF-to-text program](https://en.wikipedia.org/wiki/List_of_PDF_software)) already extract Unicode characters from PDF files? 
 
-The answer is, "sometimes".
+The answer is, "most of the time, but not always".
 
  For PDF files that contain text information, most PDF-to-text tools only extract the text strings that are *reported* by the PDF file. These text strings can be (and often are) *different* than the strings *displayed* when the PDF file is graphically rendered. PDF creation software has the power to associate *any* Unicode value with *any* font glyph (and there are no checks to make sure that this mapping is correct).
 
@@ -35,7 +35,7 @@ match the text that will be graphically displayed.
 ### Displayed &#x2260; embedded text string example: Microsoft Word
 Using a modern version of Microsoft Word for MacOS (Version 16.105):
 - Create a new document that contains a single word "difficult" in the "Aptos (Body)" font (which appears to be the default font circa early 2026)
-- Save this document in as a PDF file. 
+- Save this document as a PDF file. 
 - Open this newly created PDF document in the MacOS "Preview" PDF viewer and copy the displayed word "difficult" to the clipboard.
 - Paste the clipboard contents into a new Microsoft Word document.
 - Instead of "difficult", you will see "di#icult".
@@ -59,6 +59,39 @@ Poppler-science performs "per character" optical character recognition when extr
 - The inference of the Unicode value from an internal font glyph bitmap is implemented in C++ and performed using the CPU (using SIMD vector instructions). As a result, there is *no* dependancy on Pytorch software or GPU hardware.
 
 ## Superscript and subscript extraction
+Many scientific PDF documents contain equations and/or technical names (e.g., H<sub>2</sub>O) with subscript and/or superscript text. Since most pdf-to-text applications group text into lines based on a shared baseline (i.e., the coordinate of the bottom of each letter), superscript text might appear on a line above and subscript text might appear on a line below. First, the spurious insertion of additional lines makes the resulting text more difficult to interpret. Second, when superscript/subscript text is displayed inline, the resulting concatination of regular text with superscript/subscript text can confound the identification and interpretation of names (i.e., the "[named entity recgonition](https://en.wikipedia.org/wiki/Named-entity_recognition)" problem). For example, naively extracting text from the scientific PDF [manuscript](https://pmc.ncbi.nlm.nih.gov/articles/PMC3384317/) displaying:
+
+ ![text with superscripts and subscripts](examples/superscript_subscript.png)
+ 
+ yields:
+
+```
+complex, four different samples containing 1.0 mM of the
+complex in a 1:1.25 ratio were used (15N–Tfb1PH–
+Rad2642–690, 15N/13C–Tfb1PH–Rad2642–690, 15N–Rad2642–
+15
+N/13C–Rad2642–690–Tfb1PH, respect690–Tfb1PH and
+ively). All NMR experiments were carried out in 20 mM
+```
+
+where the superscript text string "15" appears on a line by itself, the subscript text, <sub>642-690</sub>, has been appended to the molecule name "Rad2", and text of the penultimate line is now out of order!
+
+However, using the Poppler-science `pfttotext` to extract this same block of text yields:
+
+```
+complex, four different samples containing 1.0 mM of the
+complex in a 1:1.25 ratio were used (<sup>15</sup>N–Tfb1PH–
+Rad2<sub>642–690</sub>, <sup>15</sup>N/<sup>13</sup>C–Tfb1PH–Rad2<sub>642–690</sub>, <sup>15</sup>N–Rad2<sub>642–</sub>
+<sub>690</sub>–Tfb1PH and <sup>15</sup>N/<sup>13</sup>C–Rad2<sub>642–690</sub>–Tfb1PH, respect-
+ively). All NMR experiments were carried out in 20 mM
+```
+
+which outputs HTML tags to preserves the superscript and subscript structure of the source PDF file. Since the supscript and subscript HTML tags are valid Markdown, this text is easily displayed as: "complex, four different samples containing 1.0 mM of the
+complex in a 1:1.25 ratio were used (<sup>15</sup>N–Tfb1PH–
+Rad2<sub>642–690</sub>, <sup>15</sup>N/<sup>13</sup>C–Tfb1PH–Rad2<sub>642–690</sub>, <sup>15</sup>N–Rad2<sub>642–</sub>
+<sub>690</sub>–Tfb1PH and <sup>15</sup>N/<sup>13</sup>C–Rad2<sub>642–690</sub>–Tfb1PH, respect-
+ively). All NMR experiments were carried out in 20 mM"
+
 
 ## Document structure extraction
 
