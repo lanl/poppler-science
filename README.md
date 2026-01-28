@@ -29,7 +29,7 @@ The answer is, "most of the time, but not always".
  For PDF files that contain text information, most PDF-to-text tools only extract the text strings that are *reported* by the PDF file. These text strings can be (and often are) *different* than the strings *displayed* when the PDF file is graphically rendered. PDF creation software has the power to associate *any* Unicode value with *any* font glyph (and there are no checks to make sure that this mapping is correct).
 
 Why would a software package generate a PDF that contains embedded text that does not match the displayed text? This is a great question for which I do not know the answer! [There](https://stackoverflow.com/questions/28678841/pdf-text-extraction-returns-wrong-characters-due-to-tounicode-map) [are](https://lists.freedesktop.org/archives/poppler/2012-April/009035.html), [however](https://lists.apache.org/thread/gzxw7lv9yqjox4q59dojwr6533lbnbnc), [many](https://stackoverflow.com/questions/9224211/extract-text-from-corrupt-pdf-document) [examples](https://stackoverflow.com/questions/12184304/extracting-text-from-garbled-pdf) of embeded text *not* matching displayed text. This is problem, since most (all?) of the commonly available 
-[PDF-to-text software tools]((https://en.wikipedia.org/wiki/List_of_PDF_software)) explicitly trust the source PDF file to contain embedded Unicode text strings that 
+[PDF-to-text software tools](https://en.wikipedia.org/wiki/List_of_PDF_software) explicitly trust the source PDF file to contain embedded Unicode text strings that 
 match the text that will be graphically displayed.
 
 ### Displayed &#x2260; embedded text string example: Microsoft Word
@@ -45,17 +45,17 @@ What just happedened? When creating the PDF file, MS Word replaced the two adjac
 Note that the choice to replace two characters "ff" with a single ligature character "&#xFB00;" is font dependent. If the above example is repeated using the "Times New Roman" font in MS Word, the resulting PDF file does *not* contain a ligature and the embedded text matches the displayed text (as expected).
 
 ### Displayed &#x2260; embedded text string example: Scientific literature
-The final form for many (most?) scientific manuscripts is a PDF file. Scientific manuscripts often contain a mixture of many different Unicode symbol types (e.g., English, Greek, math symbols, etc.). When embedded characters don't match the displayed characters, the resulting extracted text can have dramatically different meaning. One example is when the displayed Greek symbol "&#xB5;" (for micro) is assigned the Unicode value "m". When this change happens in units of concentration (i.e., "3.3 &#xB5;M"), the resulting text extraction error (i.e., "3.3 mM" instead of "3.3 &#xB5;M") yields a *drastically* different concentration! Since both "&#xB5;M" (micromolar) and "mM" (milimolar) are valid units of concentration, this error can be difficult to detect. There are recent [research](https://pubmed.ncbi.nlm.nih.gov/40815276/) 
-[papers](https://cebs.niehs.nih.gov/cebs/paper/16105) that use OCR to correct errors specifically related to concentration units, but do not provide a more general solution for the diverse set of Unicode symbols that commonly appear in scientifc PDF files.
+The final form for many (most?) scientific manuscripts is a PDF file. Scientific manuscripts often contain a mixture of many different Unicode symbol types (e.g., English, Greek, math symbols, etc.). When embedded characters don't match the displayed characters, the resulting extracted text can have dramatically different meaning. One example is when the displayed Greek symbol "&#xB5;" (for micro) is assigned the Unicode value "m". When this change happens in units of concentration (i.e., "3.3 &#xB5;M"), the resulting text extraction error (i.e., "3.3 mM" instead of "3.3 &#xB5;M") yields a *drastically* different concentration! Since both "&#xB5;M" (micromolar) and "mM" (millimolar) are valid units of concentration, this error can be difficult to detect. There are recent [research](https://pubmed.ncbi.nlm.nih.gov/40815276/) 
+[papers](https://cebs.niehs.nih.gov/cebs/paper/16105) that use OCR to correct errors specifically related to concentration units, but do not provide a more general solution for the diverse set of Unicode symbols that commonly appear in scientific PDF files.
 
 ### Poppler-science strategy for accurate Unicode symbol extraction
 Poppler-science performs "per character" optical character recognition when extracting embedded text strings from PDF files. Unlike most existing pdf-to-text software tools, the Unicode values embedded in a PDF file are *not* directly used. Instead each font glyph is internally rendered as a small bitmap image that is input to an internal multilayer perceptron (MLP) algorithm to predict the corresponding Unicode value. Here are some details:
-- The MLP algorithm is only envoked when a new font glyph is encountered. Previous prediction results are stored in memory to allow fast lookup of Unicode values for font glyphs previously encountered in the current PDF file.
+- The MLP algorithm is only invoked when a new font glyph is encountered. Previous prediction results are stored in memory to allow fast lookup of Unicode values for font glyphs previously encountered in the current PDF file.
 - The MLP algorithm was trained by:
   - Extracting bitmaps for all font glyphs from 685100 [Open Access](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/) PDF files downloaded from [PubMed Central](https://pmc.ncbi.nlm.nih.gov/). The streaming download of PDF files from PMC and the subsequent font extraction is performed by the [stream_PMC](glyph/stream_PMC.py) script.
   - For each unique Unicode value, the set of font glyph bitmaps were manually checked by visual inspection. Font glyphs that did not match Unicode value were excluded from the training set.
     - The [select_glyph](glyph/select_glyph.cpp) C++ program visualizes font glyph bitmaps using the text-based [ncurses](https://en.wikipedia.org/wiki/Ncurses) library. This tool enables a user to quickly screen individual font glyph bitmaps and identify glyphs that need to be excluded.
-      - The `select_glyph` program also requires the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/). The GSL provides the [singular value decomposition](https://www.gnu.org/software/gsl/doc/html/linalg.html#singular-value-decomposition) routine that is used to compute the [Mahalanobis distance](https://en.wikipedia.org/wiki/Mahalanobis_distance) between individual font glyph bitmaps and the single "average" font glyph bitmap for a given Unicode value. When displaying the glyph bitmaps associated with a given Unicode value, the initial ordering is by Mahalanobis distance (in descending order), which tends to place "outlier" (i.e., mislabeled) glyphs at the beinging of the display list.
+      - The `select_glyph` program also requires the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/). The GSL provides the [singular value decomposition](https://www.gnu.org/software/gsl/doc/html/linalg.html#singular-value-decomposition) routine that is used to compute the [Mahalanobis distance](https://en.wikipedia.org/wiki/Mahalanobis_distance) between individual font glyph bitmaps and the single "average" font glyph bitmap for a given Unicode value. When displaying the glyph bitmaps associated with a given Unicode value, the initial ordering is by Mahalanobis distance (in descending order), which tends to place "outlier" (i.e., mislabeled) glyphs at the begining of the display list.
     - The manual screening process is by no means perfect! In addition to user error (checking glyph images too far past bedtime), there are many "look alike" Unicode symbols that are very difficult for a human to distinguish. For example:
       - &#xb5; ("micro", 0xB5) versus &#x3bc; ("Greek small letter mu", 0x3BC)
       - &#xd7; ("times", 0xD7) versus &#x78; ("Latin small letter x", 0x78)
@@ -69,7 +69,7 @@ Poppler-science performs "per character" optical character recognition when extr
 - The inference of a Unicode value from an internal font glyph bitmap is [implemented in C++](poppler/MLP.cc) and performed using the CPU (using SIMD vector instructions). As a result, there is *no* dependancy on Pytorch software or GPU hardware.
 
 ## Superscript and subscript extraction
-Many scientific PDF documents contain equations and/or technical names (e.g., H<sub>2</sub>O) with subscript and/or superscript text. Since most pdf-to-text applications group text into lines based on a shared baseline (i.e., the coordinate of the bottom of each letter), superscript text might appear on a line above and subscript text might appear on a line below. First, the spurious insertion of additional lines makes the resulting text more difficult to interpret. Second, when superscript/subscript text is displayed inline, the resulting concatination of regular text with superscript/subscript text can confound the identification and interpretation of names (i.e., the "[named entity recgonition](https://en.wikipedia.org/wiki/Named-entity_recognition)" problem). For example, naively extracting text from the scientific PDF [manuscript](https://pmc.ncbi.nlm.nih.gov/articles/PMC3384317/) displaying:
+Many scientific PDF documents contain equations and/or technical names (e.g., H<sub>2</sub>O) with subscript and/or superscript text. Since most pdf-to-text applications group text into lines based on a shared baseline (i.e., the coordinate of the bottom of each letter), superscript text might appear on a line above and subscript text might appear on a line below. First, the spurious insertion of additional lines makes the resulting text more difficult to interpret. Second, when superscript/subscript text is displayed inline, the resulting concatination of regular text with superscript/subscript text can confound the identification and interpretation of names (i.e., the "[named entity recognition](https://en.wikipedia.org/wiki/Named-entity_recognition)" problem). For example, naively extracting text from the scientific PDF [manuscript](https://pmc.ncbi.nlm.nih.gov/articles/PMC3384317/) displaying:
 
  ![text with superscripts and subscripts](examples/superscript_subscript.png)
  
@@ -86,7 +86,7 @@ ively). All NMR experiments were carried out in 20 mM
 
 where the superscript text string "15" appears on a line by itself, the subscript text, <sub>642-690</sub>, has been appended to the molecule name "Rad2", and text of the penultimate line is now out of order!
 
-However, using the Poppler-science `pfttotext` to extract this same block of text yields:
+However, using the Poppler-science `pdftotext` to extract this same block of text yields:
 
 ```
 complex, four different samples containing 1.0 mM of the
@@ -110,7 +110,7 @@ Poppler-science uses word location, word density, and page orientation to identi
 - Right margin (isolated text at the right hand edge of a page)
 - "Data" -- which can be either a table or figure.
 
-The Poppler-science version of `pdftotext` can exlude any combination of header (using `--noheader`), footer (using `--nofooter`), left margin (using `--noleftmargin`), or right margin (`--norightmargin`) text. Excluding some information can be useful when extracting text from scientific documents that display redundant information (e.g., journal name, article metadata, etc.) on every page.
+The Poppler-science version of `pdftotext` can exclude any combination of header (using `--noheader`), footer (using `--nofooter`), left margin (using `--noleftmargin`), or right margin (`--norightmargin`) text. Excluding some information can be useful when extracting text from scientific documents that display redundant information (e.g., journal name, article metadata, etc.) on every page.
 
 The Poppler-science version of `pdftotext` can also annotate high-level document structures using HTML-style tags:
 - Header: `<header> ... </header>` (enabled using `-tag.section.header`)
@@ -121,13 +121,13 @@ The Poppler-science version of `pdftotext` can also annotate high-level document
 
 While the header, footer, left margin and right margin tags can each appear 0 or 1 times, there can be any number of data tags.
 
-When the `--tag.section.data` (or `--tag.section`) flag is passed to `pdftotext`, table and figure text are enclosed in the `<data> ... </data>` tags and the enclosed text is output in a "raw" format that attempts to perserve the relative positions and column alignments of data text. This formatting appears to help large language models parse tabular data (even though Poppler-science does not attempt to extract table row, column, or header information).
+When the `--tag.section.data` (or `--tag.section`) flag is passed to `pdftotext`, table and figure text are enclosed in the `<data> ... </data>` tags and the enclosed text is output in a "raw" format that attempts to preserve the relative positions and column alignments of data text. This formatting appears to help large language models parse tabular data (even though Poppler-science does not attempt to extract table row, column, or header information).
 
 # How to build Poppler-science
 Poppler-science uses the same CMake-based build system as Poppler. Additional C++ files ([`TextOutputDevOCR.cc`](poppler/TextOutputDevOCR.cc) and [`MLP.cc`](poppler/MLP.cc)) have been added to the [`CMakeLists.txt`](CMakeLists.txt) file. Other Poppler code files were also modified.
 
 1. Download the Poppler-science project from GitHub
-2. Like, Poppler, Poppler-science also depends on [Freetype](https://freetype.org/) and [Fontconfig](https://www.freedesktop.org/wiki/Software/fontconfig/). Both of these libraries must be downloaded, compiled and installed. The remaining instruction assume that these libraries will be subdirectories of the main `poppler-science` directory.
+2. Like Poppler, Poppler-science also depends on [Freetype](https://freetype.org/) and [Fontconfig](https://www.freedesktop.org/wiki/Software/fontconfig/). Both of these libraries must be downloaded, compiled and installed. The remaining instruction assume that these libraries will be subdirectories of the main `poppler-science` directory.
 3. Create a `build` sub-directory in the main `poppler-science` directory. 
 4. Run `cmake` to create the required Makefiles
   - For Linux users, here is an example CMake command to configure Poppler-science:
@@ -177,7 +177,7 @@ cmake ../ \
     -DENABLE_LCMS=OFF
   ```
 5. Run `make pdftotext` to build the Poppler-science version of `pdftotext`. 
-  - The default installation directory, specified in [`CMakeLists.txt`]() was changed to `${CMAKE_INSTALL_PREFIX}/share/poppler-science` to reduce the risk of clobbering an existing Poppler installation. Currenty, the Poppler-science uses the *exact same file names* for `libpoppler` and the Poppler utility executable files, so these files should not be installed to the same location as the Poppler files of the same name!
+  - The default installation directory, specified in [`CMakeLists.txt`](CMakeLists.txt) was changed to `${CMAKE_INSTALL_PREFIX}/share/poppler-science` to reduce the risk of clobbering an existing Poppler installation. Currenty, the Poppler-science uses the *exact same file names* for `libpoppler` and the Poppler utility executable files, so these files should not be installed to the same location as the Poppler files of the same name!
   - Note that all of the other Poppler utilities are still part of the CMake configuration, are unmodified, and should build and run as expected.
 
 # How to run Poppler-science: pdftotext
@@ -232,10 +232,10 @@ Usage: pdftotext [options] <PDF-file> [<text-file>]
 Please note the following:
 - For per-character optical character recogition:
   - A machine learning parameter file (specified by `-ocr.model`) is required to predict Unicode values from individual font glyphs. A parameter file for a pretrained MLP modle is provided in [unicode_mlp_model_param.bin](glyph/unicode_mlp_model_param.bin).
-  - The argument to `-ocr.best_threshold` is a numeric value between 0.0 and 1.0 that must be *exceeded* by the proability of the predicted Unicode value computed by the MLP model. This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.25`.
-  - The argument to `-ocr.self_threshold` is a numeric value between 0.0 and 1.0 that must *not* be exceeded by the proability of the Unicode value that is embedded in the PDF file (as computed by the MLP model). This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.01` .
+  - The argument to `-ocr.best_threshold` is a numeric value between 0.0 and 1.0 that must be *exceeded* by the probability of the predicted Unicode value computed by the MLP model. This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.25`.
+  - The argument to `-ocr.self_threshold` is a numeric value between 0.0 and 1.0 that must *not* be exceeded by the probability of the Unicode value that is embedded in the PDF file (as computed by the MLP model). This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.01` .
   - The `-ocr.dump_glyphs` argument writes all unique font glyph bitmaps found in the specified PDF file to the specified output file. WHile the format of this binary file still needs to be documented the [unique_glyph.cpp](glyph/unique_glyph.cpp), [select_glyph.cpp](glyph/select_glyph.cpp) and [classify_glyph.py](glyph/classify_glyph.py) provided examples on how to read and write this format.
-- For supscript and supscript output:
+- For superscript and subscript output:
   - By default, the Poppler-science `pdftotext` program does not identify superscript or subscript text. This functionality is enabled using the `-tag.superscript` and `-tag.subscript` flags.
 - For section tagging:
   - By default, the Poppler-science `pdftotext` program does *not* identify document sections. This functionality can be enabled for *all* section types using `-tag.section` or for specific sections using `-tag.section.data`, `-tag.section.header`, `-tag.section.footer`, etc.
