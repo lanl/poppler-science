@@ -45,18 +45,27 @@ What just happedened? When creating the PDF file, MS Word replaced the two adjac
 Note that the choice to replace two characters "ff" with a single ligature character "&#xFB00;" is font dependent. If the above example is repeated using the "Times New Roman" font in MS Word, the resulting PDF file does *not* contain a ligature and the embedded text matches the displayed text (as expected).
 
 ### Displayed &#x2260; embedded text string example: Scientific literature
-The final form for many (most?) scientific manuscripts is a PDF file. Scientific manuscripts often contain a mixture of many different Unicode symbol types (e.g., English, Greek, math symbols, etc.). When embedded characters don't match the displayed characters, the resulting extracted text can have dramatically different meaning. One example is when the displayed Greek symbol "&#x00B5;" (for micro) is assigned the Unicode value "m". When this change happens in units of concentration (i.e., "3.3 &#x00B5;M"), the resulting text extraction error (i.e., "3.3 mM" instead of "3.3 &#x00B5;M") yields a *drastically* different concentration! Since both "&#x00B5;M" (micromolar) and "mM" (milimolar) are valid units of concentration, this error can be difficult to detect. There are recent [research](https://pubmed.ncbi.nlm.nih.gov/40815276/) 
+The final form for many (most?) scientific manuscripts is a PDF file. Scientific manuscripts often contain a mixture of many different Unicode symbol types (e.g., English, Greek, math symbols, etc.). When embedded characters don't match the displayed characters, the resulting extracted text can have dramatically different meaning. One example is when the displayed Greek symbol "&#xB5;" (for micro) is assigned the Unicode value "m". When this change happens in units of concentration (i.e., "3.3 &#xB5;M"), the resulting text extraction error (i.e., "3.3 mM" instead of "3.3 &#xB5;M") yields a *drastically* different concentration! Since both "&#xB5;M" (micromolar) and "mM" (milimolar) are valid units of concentration, this error can be difficult to detect. There are recent [research](https://pubmed.ncbi.nlm.nih.gov/40815276/) 
 [papers](https://cebs.niehs.nih.gov/cebs/paper/16105) that use OCR to correct errors specifically related to concentration units, but do not provide a more general solution for the diverse set of Unicode symbols that commonly appear in scientifc PDF files.
 
 ### Poppler-science strategy for accurate Unicode symbol extraction
-Poppler-science performs "per character" optical character recognition when extracting embedded text strings from PDF files. Unlike most existing pdf-to-text software tool, embedded Unicode values are not used. Instead each font glyph is internally rendered as a small bitmap image that is input to a multilayer perceptron algorithm to predict the corresponding Unicode value. Here are the details:
-- The multilayer perceptron algorithm is only envoked when a new font glyph is encountered. Prediction results are stored in memory to allow fast lookup of Unicode values for font glyphs previously encountered in the current PDF file.
-- The multilayer perceptron algorithm was trained by:
-  - Extracting all font glyphs from XXX Open Access files downloaded from PubMed Central (PMC).
-  - For each unique Unicode value, the set of PMC font glyphs were manually checked by visual inspection. Font glyphs that did not match Unicode value were excluded from the training set.
-  - A two-layer perceptron, each layer with XXX and XXX nodes in each layer, was trained using Pytorch on an Apple M3 Mac Studio.
-- The binary file of multilayer perceptron parameters (approximately 200 MB) are currently loaded from disk every time the Poppler-science pdftotext program is run.
-- The inference of the Unicode value from an internal font glyph bitmap is implemented in C++ and performed using the CPU (using SIMD vector instructions). As a result, there is *no* dependancy on Pytorch software or GPU hardware.
+Poppler-science performs "per character" optical character recognition when extracting embedded text strings from PDF files. Unlike most existing pdf-to-text software tools, the Unicode values embedded in a PDF file are *not* directly used. Instead each font glyph is internally rendered as a small bitmap image that is input to an internal multilayer perceptron (MLP) algorithm to predict the corresponding Unicode value. Here are some details:
+- The MLP algorithm is only envoked when a new font glyph is encountered. Previous prediction results are stored in memory to allow fast lookup of Unicode values for font glyphs previously encountered in the current PDF file.
+- The MLP algorithm was trained by:
+  - Extracting bitmaps for all font glyphs from 685100 [Open Access](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/) PDF files downloaded from [PubMed Central](https://pmc.ncbi.nlm.nih.gov/). The streaming download of PDF files from PMC and the subsequent font extraction is performed by the [stream_PMC](glyph/stream_PMC.py) script.
+  - For each unique Unicode value, the set of font glyph bitmaps were manually checked by visual inspection. Font glyphs that did not match Unicode value were excluded from the training set.
+    - The [select_glyph](glyph/select_glyph.cpp) C++ program visualizes font glyph bitmaps using the text-based [ncurses](https://en.wikipedia.org/wiki/Ncurses) library. This tool enables a user to quickly screen individual font glyph bitmaps and identify glyphs that need to be excluded.
+    - The manual screening process is by no means perfect! In addition to user error (checking glyph images too far past bedtime), there are many "look alike" Unicode symbols that are very difficult for a human to distinguish. For example:
+      - &#xb5; ("micro", 0xB5) versus &#x3bc; ("Greek small letter mu", 0x3BC)
+      - &#xd7; ("times", 0xD7) versus &#x78; ("Latin small letter x", 0x78)
+      - &#x1e9f; ("Latin small letter delta, 0x1E9F") versus &#x3B4; ("Greek small letter delta", 0x3B4)
+      - &#x3B3; ("Greek small letter gamma", 0x3B3) versus &#x79; ("Latin small letter Y", 0x79)
+      - &#x391; ("Greek capital letter Alpha", 0x391) versus &#x41; ("Latin capital letter A", 0x41)
+      - and many, many others ...
+  - A two-layer MLP, each layer with 3000 and 2000 nodes in each layer, was trained using Pytorch on an Apple M3 Mac Studio. Please see of the [classify_glyph.py](glyph/classify_glyph.py) script for the implementation. The MLP architecture was inspired by existing strategies for [classifying handwritten digits](https://en.wikipedia.org/wiki/MNIST_database). After model training, the `classify_glyph.py` script write the model parameters to disk in a binary format.
+  - The training set of bitmap-to-Unicode mappings was downselected to contain 650544 unique font glyph bitmaps for 862 different Unicode values representing a core set of commonly used Unicode values. The full set contained 864526 glyph bitmaps for 15208 different Unicode values. To reduce the complexity of the MLP model, Unicode values that were mostly found manuscript author name list were not included in the final training set.
+- The [binary file of multilayer perceptron parameters](glyph/unicode_mlp_model_param.bin) (approximately 89 MB) are currently loaded from disk every time the Poppler-science pdftotext program is run.
+- The inference of a Unicode value from an internal font glyph bitmap is [implemented in C++](poppler/MLP.cc) and performed using the CPU (using SIMD vector instructions). As a result, there is *no* dependancy on Pytorch software or GPU hardware.
 
 ## Superscript and subscript extraction
 Many scientific PDF documents contain equations and/or technical names (e.g., H<sub>2</sub>O) with subscript and/or superscript text. Since most pdf-to-text applications group text into lines based on a shared baseline (i.e., the coordinate of the bottom of each letter), superscript text might appear on a line above and subscript text might appear on a line below. First, the spurious insertion of additional lines makes the resulting text more difficult to interpret. Second, when superscript/subscript text is displayed inline, the resulting concatination of regular text with superscript/subscript text can confound the identification and interpretation of names (i.e., the "[named entity recgonition](https://en.wikipedia.org/wiki/Named-entity_recognition)" problem). For example, naively extracting text from the scientific PDF [manuscript](https://pmc.ncbi.nlm.nih.gov/articles/PMC3384317/) displaying:
@@ -92,9 +101,114 @@ Rad2<sub>642–690</sub>, <sup>15</sup>N/<sup>13</sup>C–Tfb1PH–Rad2<sub>642�
 <sub>690</sub>–Tfb1PH and <sup>15</sup>N/<sup>13</sup>C–Rad2<sub>642–690</sub>–Tfb1PH, respect-
 ively). All NMR experiments were carried out in 20 mM"
 
-
 ## Document structure extraction
 
 # How to build Poppler-science
+Poppler-science uses the same CMake-based build system as Poppler. Additional C++ files ([`TextOutputDevOCR.cc`](poppler/TextOutputDevOCR.cc) and [`MLP.cc`](poppler/MLP.cc)) have been added to the [`CMakeLists.txt`](CMakeLists.txt) file. Other Poppler code files were also modified.
+
+1. Download the Poppler-science project from GitHub
+2. Like, Poppler, Poppler-science also depends on [Freetype](https://freetype.org/) and [Fontconfig](https://www.freedesktop.org/wiki/Software/fontconfig/). Both of these libraries must be downloaded, compiled and installed. The remaining instruction assume that these libraries will be subdirectories of the main `poppler-science` directory.
+3. Create a `build` sub-directory in the main `poppler-science` directory. 
+4. Run `cmake` to create the required Makefiles
+  - For Linux users, here is an example CMake command to configure Poppler-science:
+```
+cmake ../ \
+    -DFREETYPE_LIBRARY=$HOME/src/poppler-science/freetype/lib/libfreetype.so \
+    -DFREETYPE_INCLUDE_DIRS=$HOME/src/poppler-science/freetype/include/freetype2 \
+    -DFontconfig_LIBRARY=$HOME/src/poppler-science/fontconfig/lib/libfontconfig.so \
+    -DFontconfig_INCLUDE_DIR=$HOME/src/poppler-science/fontconfig/include \
+    -DENABLE_NSS3=OFF \
+    -DENABLE_GPGME=OFF \
+    -DENABLE_DCTDECODER=libjpeg \
+    -DENABLE_QT5=OFF \
+    -DENABLE_QT6=OFF \
+    -DENABLE_BOOST=OFF \
+    -DENABLE_DCTDECODER=libjpeg \
+    -DENABLE_LIBOPENJPEG=unmaintained \
+    -DENABLE_LCMS=OFF
+```
+  - For MacOS users, configuration is more complex. One can either use a package manager (i.e., [homebrew](https://brew.sh/)) or manually download, compile and install all of the dependancies that Linux users take for granted! In addition to the `Freetype` and `Fontconfig` libraries mentioned in step 2, here are the libraries that MacOS users will (probably) need to install:
+    - [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/)
+    - [LibTIFF](https://libtiff.gitlab.io/libtiff/)
+    - [libpng](https://www.libpng.org/pub/png/libpng.html)
+    - [libjpeg-turbo](https://sourceforge.net/projects/libjpeg-turbo/)
+  - For MacOS users, here is an example CMake command to configure Poppler-science:
+  ```
+  cmake ../ \
+    -DFREETYPE_LIBRARY=$HOME/src/poppler-science/freetype/lib/libfreetype.6.dylib \
+    -DFREETYPE_INCLUDE_DIRS=$HOME/src/poppler-science/freetype/include/freetype2 \
+    -DFontconfig_LIBRARY=$HOME/src/poppler-science/fontconfig/lib/libfontconfig.1.dylib \
+    -DFontconfig_INCLUDE_DIR=$HOME/src/poppler-science/fontconfig/include \
+    -DPKG_CONFIG_EXECUTABLE=$HOME/src/poppler-science/pkg-config/bin/pkg-config \
+    -DENABLE_NSS3=OFF \
+    -DENABLE_GPGME=OFF \
+    -DTIFF_INCLUDE_DIR=$HOME/src/poppler-science/libtiff/include \
+    -DTIFF_LIBRARY=$HOME/src/poppler-science/libtiff/lib/libtiff.dylib \
+    -DPNG_PNG_INCLUDE_DIR=$HOME/src/poppler-science/libpng/include \
+    -DPNG_LIBRARY=$HOME/src/poppler-science/libpng/lib/libpng.dylib \
+    -DENABLE_DCTDECODER=libjpeg \
+    -DENABLE_QT5=OFF \
+    -DENABLE_QT6=OFF \
+    -DENABLE_BOOST=OFF \
+    -DENABLE_DCTDECODER=libjpeg \
+    -DJPEG_INCLUDE_DIR=$HOME/src/poppler-science/libjpeg/include \
+    -DJPEG_LIBRARY=$HOME/src/poppler-science/libjpeg/lib/libjpeg.dylib \
+    -DENABLE_LIBOPENJPEG=unmaintained \
+    -DENABLE_LCMS=OFF
+  ```
+5. Run `make pdftotext` to build the Poppler-science version of `pdftotext`. 
+  - The default installation directory, specified in [`CMakeLists.txt`]() was changed to `${CMAKE_INSTALL_PREFIX}/share/poppler-science` to reduce the risk of clobbering an existing Poppler installation. Currenty, the Poppler-science uses the *exact same file names* for `libpoppler` and the Poppler utility executable files, so these files should not be installed to the same location as the Poppler files of the same name!
+  - Note that all of the other Poppler utilities are still part of the CMake configuration, are unmodified, and should build and run as expected.
 
 # How to run Poppler-science: pdftotext
+Running `pdftotext -h` will output the allowed command line arguments. Many are same as the Poppler `pdftotext` program. Here is a listing of the command line arguments, with the Poppler science-specific arguments shown in bold:
+
+Usage: pdftotext [options] <PDF-file> [<text-file>] <br>
+  -f <int>                         : first page to convert <br>
+  -l <int>                         : last page to convert <br>
+  -r <fp>                          : resolution, in DPI (default is 72) <br>
+  -x <int>                         : x-coordinate of the crop area top left corner <br>
+  -y <int>                         : y-coordinate of the crop area top left corner <br>
+  -W <int>                         : width of crop area in pixels (default is 0) <br>
+  -H <int>                         : height of crop area in pixels (default is 0) <br>
+  -nodiag                          : discard diagonal text <br>
+  -enc <string>                    : output text encoding name <br>
+  -listenc                         : list available encodings <br>
+  -eol <string>                    : output end-of-line convention (unix, dos, or mac) <br>
+  -nopgbrk                         : don't insert page breaks between pages <br>
+  -colspacing <fp>                 : how much spacing we allow after a word before considering adjacent text to be a new column, as a fraction of the font size (default is 0.7, old releases had a 0.3 default) <br>
+  -opw <string>                    : owner password (for encrypted files) <br>
+  -upw <string>                    : user password (for encrypted files) <br>
+  **-ocr.model <string>              : machine learning model parameters for OCR glyph classification** <br>
+  **-ocr.best_threshold <fp>         : minimum threshold for highest probability OCR inferred glyph** <br>
+  **-ocr.self_threshold <fp>         : maximum threshold for probability of reported glyph** <br>
+  **-ocr.dump_glyphs <string>        : write glyph bitmaps to file** <br>
+  **-noheader                        : don't output page headers** <br>
+  **-noleftmargin                    : don't output left margin text** <br>
+  **-norightmargin                   : don't output right margin text** <br>
+  **-nofooter                        : don't output page footers** <br>
+  **-tag.section                     : output HTML tags for all sections** <br>
+  **-tag.section.data                : output HTML tags for data (table/figure) sections** <br>
+  **-tag.section.header              : output HTML tags for header sections** <br>
+  **-tag.section.leftmargin          : output HTML tags for left margin sections** <br>
+  **-tag.section.rightmargin         : output HTML tags for right margin sections** <br>
+  **-tag.section.footer              : output HTML tags for footer sections** <br>
+  **-tag.superscript                 : output HTML superscript tags** <br>
+  **-tag.subscript                   : output HTML subscript tags** <br>
+  **-splitligature                   : decompose unicode ligatures into separate characters** <br>
+  -q                               : don't print any messages or errors <br>
+  -v                               : print copyright and version info <br>
+  -h                               : print usage information <br>
+  -help                            : print usage information <br>
+  --help                           : print usage information <br>
+  -?                               : print usage information <br>
+
+Please note the following:
+- For per-character optical character recogition:
+  - A machine learning parameter file (specified by `-ocr.model`) is required to predict Unicode values from individual font glyphs. A parameter file for a pretrained MLP modle is provided in [unicode_mlp_model_param.bin](glyph/unicode_mlp_model_param.bin).
+  - The argument to `-ocr.best_threshold` is a numeric value, [0.0, 1.0], that must be *exceeded* by the proability of the predicted Unicode value computed by the MLP model. This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.25` .
+  - The argument to `-ocr.self_threshold` is a numeric value, [0.0, 1.0], that must *not* be exceeded by the proability of the Unicode value that is embedded in the PDF file (as computed by the MLP model). This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.01` .
+- For supscript and supscript output:
+  - By default, the Poppler-science `pdftotext` program does *not* identify superscript or subscript text. This functionality is enabled using the `-tag.superscript` and `-tag.subscript` flags.
+- For section tagging:
+  - By default, the Poppler-science `pdftotext` program does *not* identify document sections. This functionality can be enabled for *all* section types using `-tag.section` or for specific sections using `-tag.section.data`, `-tag.section.header`, `-tag.section.footer`, etc.
