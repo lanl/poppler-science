@@ -55,6 +55,7 @@ Poppler-science performs "per character" optical character recognition when extr
   - Extracting bitmaps for all font glyphs from 685100 [Open Access](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/) PDF files downloaded from [PubMed Central](https://pmc.ncbi.nlm.nih.gov/). The streaming download of PDF files from PMC and the subsequent font extraction is performed by the [stream_PMC](glyph/stream_PMC.py) script.
   - For each unique Unicode value, the set of font glyph bitmaps were manually checked by visual inspection. Font glyphs that did not match Unicode value were excluded from the training set.
     - The [select_glyph](glyph/select_glyph.cpp) C++ program visualizes font glyph bitmaps using the text-based [ncurses](https://en.wikipedia.org/wiki/Ncurses) library. This tool enables a user to quickly screen individual font glyph bitmaps and identify glyphs that need to be excluded.
+      - The `select_glyph` program also requires the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/). The GSL provides the [singular value decomposition](https://www.gnu.org/software/gsl/doc/html/linalg.html#singular-value-decomposition) routine that is used to compute the [Mahalanobis distance](https://en.wikipedia.org/wiki/Mahalanobis_distance) between individual font glyph bitmaps and the single "average" font glyph bitmap for a given Unicode value. When displaying the glyph bitmaps associated with a given Unicode value, the initial ordering is by Mahalanobis distance (in descending order), which tends to place "outlier" (i.e., mislabeled) glyphs at the beinging of the display list.
     - The manual screening process is by no means perfect! In addition to user error (checking glyph images too far past bedtime), there are many "look alike" Unicode symbols that are very difficult for a human to distinguish. For example:
       - &#xb5; ("micro", 0xB5) versus &#x3bc; ("Greek small letter mu", 0x3BC)
       - &#xd7; ("times", 0xD7) versus &#x78; ("Latin small letter x", 0x78)
@@ -102,6 +103,25 @@ Rad2<sub>642–690</sub>, <sup>15</sup>N/<sup>13</sup>C–Tfb1PH–Rad2<sub>642�
 ively). All NMR experiments were carried out in 20 mM"
 
 ## Document structure extraction
+Poppler-science uses word location, word density, and page orientation to identify the following high-level document structures:
+- Header (isolated text at the top of a page)
+- Footer (isolated text at the bottom of a page)
+- Left margin (isolated text at the left hand edge of a page)
+- Right margin (isolated text at the right hand edge of a page)
+- "Data" -- which can be either a table or figure.
+
+The Poppler-science version of `pdftotext` can exlude any combination of header (using `--noheader`), footer (using `--nofooter`), left margin (using `--noleftmargin`), or right margin (`--norightmargin`) text. Excluding some information can be useful when extracting text from scientific documents that display redundant information (e.g., journal name, article metadata, etc.) on every page.
+
+The Poppler-science version of `pdftotext` can also annotate high-level document structures using HTML-style tags:
+- Header: `<header> ... </header>` (enabled using `-tag.section.header`)
+- Footer: `<footer> ... </footer>` (enabled using `-tag.section.footer`)
+- Left margin: `<left_margin> ... </left_margin>` (enabled using `-tag.section.leftmargin`)
+- Right margin: `<right_margin> ... </right_margin>` (enabled using `-tag.section.rightmargin`)
+- Data: `<data> ... </data>` (enabled using `-tag.section.data`)
+
+While the header, footer, left margin and right margin tags can each appear 0 or 1 times, there can be any number of data tags.
+
+When the `--tag.section.data` (or `--tag.section`) flag is passed to `pdftotext`, table and figure text are enclosed in the `<data> ... </data>` tags and the enclosed text is output in a "raw" format that attempts to perserve the relative positions and column alignments of data text. This formatting appears to help large language models parse tabular data (even though Poppler-science does not attempt to extract table row, column, or header information).
 
 # How to build Poppler-science
 Poppler-science uses the same CMake-based build system as Poppler. Additional C++ files ([`TextOutputDevOCR.cc`](poppler/TextOutputDevOCR.cc) and [`MLP.cc`](poppler/MLP.cc)) have been added to the [`CMakeLists.txt`](CMakeLists.txt) file. Other Poppler code files were also modified.
@@ -161,54 +181,61 @@ cmake ../ \
   - Note that all of the other Poppler utilities are still part of the CMake configuration, are unmodified, and should build and run as expected.
 
 # How to run Poppler-science: pdftotext
-Running `pdftotext -h` will output the allowed command line arguments. Many are same as the Poppler `pdftotext` program. Here is a listing of the command line arguments, with the Poppler science-specific arguments shown in bold:
+Running `pdftotext -h` will output the allowed command line arguments. Many are same as the Poppler `pdftotext` program. Here are the command line arguments that Poppler-science version of `pdftotext` shares with the Poppler version of `pdftotext`:
 
-Usage: pdftotext [options] <PDF-file> [<text-file>] <br>
-  -f <int>                         : first page to convert <br>
-  -l <int>                         : last page to convert <br>
-  -r <fp>                          : resolution, in DPI (default is 72) <br>
-  -x <int>                         : x-coordinate of the crop area top left corner <br>
-  -y <int>                         : y-coordinate of the crop area top left corner <br>
-  -W <int>                         : width of crop area in pixels (default is 0) <br>
-  -H <int>                         : height of crop area in pixels (default is 0) <br>
-  -nodiag                          : discard diagonal text <br>
-  -enc <string>                    : output text encoding name <br>
-  -listenc                         : list available encodings <br>
-  -eol <string>                    : output end-of-line convention (unix, dos, or mac) <br>
-  -nopgbrk                         : don't insert page breaks between pages <br>
-  -colspacing <fp>                 : how much spacing we allow after a word before considering adjacent text to be a new column, as a fraction of the font size (default is 0.7, old releases had a 0.3 default) <br>
-  -opw <string>                    : owner password (for encrypted files) <br>
-  -upw <string>                    : user password (for encrypted files) <br>
-  **-ocr.model <string>              : machine learning model parameters for OCR glyph classification** <br>
-  **-ocr.best_threshold <fp>         : minimum threshold for highest probability OCR inferred glyph** <br>
-  **-ocr.self_threshold <fp>         : maximum threshold for probability of reported glyph** <br>
-  **-ocr.dump_glyphs <string>        : write glyph bitmaps to file** <br>
-  **-noheader                        : don't output page headers** <br>
-  **-noleftmargin                    : don't output left margin text** <br>
-  **-norightmargin                   : don't output right margin text** <br>
-  **-nofooter                        : don't output page footers** <br>
-  **-tag.section                     : output HTML tags for all sections** <br>
-  **-tag.section.data                : output HTML tags for data (table/figure) sections** <br>
-  **-tag.section.header              : output HTML tags for header sections** <br>
-  **-tag.section.leftmargin          : output HTML tags for left margin sections** <br>
-  **-tag.section.rightmargin         : output HTML tags for right margin sections** <br>
-  **-tag.section.footer              : output HTML tags for footer sections** <br>
-  **-tag.superscript                 : output HTML superscript tags** <br>
-  **-tag.subscript                   : output HTML subscript tags** <br>
-  **-splitligature                   : decompose unicode ligatures into separate characters** <br>
-  -q                               : don't print any messages or errors <br>
-  -v                               : print copyright and version info <br>
-  -h                               : print usage information <br>
-  -help                            : print usage information <br>
-  --help                           : print usage information <br>
-  -?                               : print usage information <br>
+```
+Usage: pdftotext [options] <PDF-file> [<text-file>]
+  -f <int>                         : first page to convert
+  -l <int>                         : last page to convert
+  -r <fp>                          : resolution, in DPI (default is 72)
+  -x <int>                         : x-coordinate of the crop area top left corner
+  -y <int>                         : y-coordinate of the crop area top left corner
+  -W <int>                         : width of crop area in pixels (default is 0)
+  -H <int>                         : height of crop area in pixels (default is 0)
+  -nodiag                          : discard diagonal text
+  -enc <string>                    : output text encoding name
+  -listenc                         : list available encodings
+  -eol <string>                    : output end-of-line convention (unix, dos, or mac)
+  -nopgbrk                         : don't insert page breaks between pages
+  -colspacing <fp>                 : how much spacing we allow after a word before considering adjacent text to be a new column, as a fraction of the font size (default is 0.7, old releases had a 0.3 default)
+  -opw <string>                    : owner password (for encrypted files)
+  -upw <string>                    : user password (for encrypted files)
+  -q                               : don't print any messages or errors
+  -v                               : print copyright and version info
+  -h                               : print usage information
+  -help                            : print usage information
+  --help                           : print usage information
+  -?                               : print usage information
+  ```
+
+  Here are the command line parameters that are specific to the Poppler-science version of `pdftotext`:
+  ```
+  -ocr.model <string>              : machine learning model parameters for OCR glyph classification
+  -ocr.best_threshold <fp>         : minimum threshold for highest probability OCR inferred glyph
+  -ocr.self_threshold <fp>         : maximum threshold for probability of reported glyph
+  -ocr.dump_glyphs <string>        : write glyph bitmaps to file
+  -noheader                        : don't output page headers
+  -noleftmargin                    : don't output left margin text
+  -norightmargin                   : don't output right margin text
+  -nofooter                        : don't output page footers
+  -tag.section                     : output HTML tags for all sections
+  -tag.section.data                : output HTML tags for data (table/figure) sections
+  -tag.section.header              : output HTML tags for header sections
+  -tag.section.leftmargin          : output HTML tags for left margin sections
+  -tag.section.rightmargin         : output HTML tags for right margin sections
+  -tag.section.footer              : output HTML tags for footer sections
+  -tag.superscript                 : output HTML superscript tags
+  -tag.subscript                   : output HTML subscript tags
+  -splitligature                   : decompose unicode ligatures into separate characters
+```
 
 Please note the following:
 - For per-character optical character recogition:
   - A machine learning parameter file (specified by `-ocr.model`) is required to predict Unicode values from individual font glyphs. A parameter file for a pretrained MLP modle is provided in [unicode_mlp_model_param.bin](glyph/unicode_mlp_model_param.bin).
-  - The argument to `-ocr.best_threshold` is a numeric value, [0.0, 1.0], that must be *exceeded* by the proability of the predicted Unicode value computed by the MLP model. This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.25` .
-  - The argument to `-ocr.self_threshold` is a numeric value, [0.0, 1.0], that must *not* be exceeded by the proability of the Unicode value that is embedded in the PDF file (as computed by the MLP model). This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.01` .
+  - The argument to `-ocr.best_threshold` is a numeric value between 0.0 and 1.0 that must be *exceeded* by the proability of the predicted Unicode value computed by the MLP model. This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.25`.
+  - The argument to `-ocr.self_threshold` is a numeric value between 0.0 and 1.0 that must *not* be exceeded by the proability of the Unicode value that is embedded in the PDF file (as computed by the MLP model). This threshold is used to reduce the Unicode classification error rate for "look alike" Unicode symbols. The default value is currently `0.01` .
+  - The `-ocr.dump_glyphs` argument writes all unique font glyph bitmaps found in the specified PDF file to the specified output file. WHile the format of this binary file still needs to be documented the [unique_glyph.cpp](glyph/unique_glyph.cpp), [select_glyph.cpp](glyph/select_glyph.cpp) and [classify_glyph.py](glyph/classify_glyph.py) provided examples on how to read and write this format.
 - For supscript and supscript output:
-  - By default, the Poppler-science `pdftotext` program does *not* identify superscript or subscript text. This functionality is enabled using the `-tag.superscript` and `-tag.subscript` flags.
+  - By default, the Poppler-science `pdftotext` program does not identify superscript or subscript text. This functionality is enabled using the `-tag.superscript` and `-tag.subscript` flags.
 - For section tagging:
   - By default, the Poppler-science `pdftotext` program does *not* identify document sections. This functionality can be enabled for *all* section types using `-tag.section` or for specific sections using `-tag.section.data`, `-tag.section.header`, `-tag.section.footer`, etc.
