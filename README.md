@@ -10,7 +10,8 @@ The goal of Poppler-science is to accurately extract text-based information from
 
 ## Key features of Poppler-science include:
 - An integrated multilayer perceptron to predict Unicode values from *individual* font glyph bitmaps -- this is "per character" optical character recognition (OCR).
-- Superscript and subscript text identification based on text position and size using simple coding heuristics. 
+  - Many scientific PDF files have a few font glyphs that are associated with *incorrect* Unicode values. These can be corrected using per character OCR.
+- Superscript and subscript text output (using HTML tags) based on text position and size using simple coding heuristics. 
 - Per-page text string ordering inference using single linkage clustering. 
 - High-level document structure inference (using location and word density-based heuristics) at the level of:
   - Header
@@ -40,7 +41,7 @@ Using a modern version of Microsoft Word for MacOS (Version 16.105):
 - Paste the clipboard contents into a new Microsoft Word document.
 - Instead of "difficult", you will see "di#icult".
   
-What just happedened? When creating the PDF file, MS Word replaced the two adjacent "f" characters in "difficult" with a single Unicode character representing the "&#xFB00;" ligature (where a [ligature](https://en.wikipedia.org/wiki/Ligature_(writing)) contains multiple symbols/characters in a single font glyph). However, rather than embedding a valid Unicode code for "&#xFB00;" (= 0xFB00), MS Word embedded the Unicode symbol "#" (= 0x0023).
+What just happedened? When creating the PDF file, MS Word replaced the two adjacent "f" characters in "difficult" with a single Unicode character representing the "&#xFB00;" ligature (where a [ligature](https://en.wikipedia.org/wiki/Ligature_(writing)) contains multiple symbols/characters in a single font glyph). However, rather than embedding a valid Unicode code for "&#xFB00;" (= 0xFB), MS Word embedded the Unicode symbol "#" (= 0x23).
 
 Note that the choice to replace two characters "ff" with a single ligature character "&#xFB00;" is font dependent. If the above example is repeated using the "Times New Roman" font in MS Word, the resulting PDF file does *not* contain a ligature and the embedded text matches the displayed text (as expected).
 
