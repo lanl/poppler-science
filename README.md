@@ -138,10 +138,10 @@ Poppler-science uses the same CMake-based build system as Poppler. Additional C+
   - For Linux users, here is an example CMake command to configure Poppler-science:
 ```
 cmake ../ \
-    -DFREETYPE_LIBRARY=$HOME/src/poppler-science/freetype/lib/libfreetype.so \
-    -DFREETYPE_INCLUDE_DIRS=$HOME/src/poppler-science/freetype/include/freetype2 \
-    -DFontconfig_LIBRARY=$HOME/src/poppler-science/fontconfig/lib/libfontconfig.so \
-    -DFontconfig_INCLUDE_DIR=$HOME/src/poppler-science/fontconfig/include \
+    -DFREETYPE_LIBRARY=$HOME/poppler-science/freetype/lib/libfreetype.so \
+    -DFREETYPE_INCLUDE_DIRS=$HOME/poppler-science/freetype/include/freetype2 \
+    -DFontconfig_LIBRARY=$HOME/poppler-science/fontconfig/lib/libfontconfig.so \
+    -DFontconfig_INCLUDE_DIR=$HOME/poppler-science/fontconfig/include \
     -DENABLE_NSS3=OFF \
     -DENABLE_GPGME=OFF \
     -DENABLE_DCTDECODER=libjpeg \
@@ -160,24 +160,24 @@ cmake ../ \
   - For MacOS users, here is an example CMake command to configure Poppler-science:
   ```
   cmake ../ \
-    -DFREETYPE_LIBRARY=$HOME/src/poppler-science/freetype/lib/libfreetype.6.dylib \
-    -DFREETYPE_INCLUDE_DIRS=$HOME/src/poppler-science/freetype/include/freetype2 \
-    -DFontconfig_LIBRARY=$HOME/src/poppler-science/fontconfig/lib/libfontconfig.1.dylib \
-    -DFontconfig_INCLUDE_DIR=$HOME/src/poppler-science/fontconfig/include \
-    -DPKG_CONFIG_EXECUTABLE=$HOME/src/poppler-science/pkg-config/bin/pkg-config \
+    -DFREETYPE_LIBRARY=$HOME/poppler-science/freetype/lib/libfreetype.6.dylib \
+    -DFREETYPE_INCLUDE_DIRS=$HOME/poppler-science/freetype/include/freetype2 \
+    -DFontconfig_LIBRARY=$HOME/poppler-science/fontconfig/lib/libfontconfig.1.dylib \
+    -DFontconfig_INCLUDE_DIR=$HOME/poppler-science/fontconfig/include \
+    -DPKG_CONFIG_EXECUTABLE=$HOME/poppler-science/pkg-config/bin/pkg-config \
     -DENABLE_NSS3=OFF \
     -DENABLE_GPGME=OFF \
-    -DTIFF_INCLUDE_DIR=$HOME/src/poppler-science/libtiff/include \
-    -DTIFF_LIBRARY=$HOME/src/poppler-science/libtiff/lib/libtiff.dylib \
-    -DPNG_PNG_INCLUDE_DIR=$HOME/src/poppler-science/libpng/include \
-    -DPNG_LIBRARY=$HOME/src/poppler-science/libpng/lib/libpng.dylib \
+    -DTIFF_INCLUDE_DIR=$HOME/poppler-science/libtiff/include \
+    -DTIFF_LIBRARY=$HOME/poppler-science/libtiff/lib/libtiff.dylib \
+    -DPNG_PNG_INCLUDE_DIR=$HOME/poppler-science/libpng/include \
+    -DPNG_LIBRARY=$HOME/poppler-science/libpng/lib/libpng.dylib \
     -DENABLE_DCTDECODER=libjpeg \
     -DENABLE_QT5=OFF \
     -DENABLE_QT6=OFF \
     -DENABLE_BOOST=OFF \
     -DENABLE_DCTDECODER=libjpeg \
-    -DJPEG_INCLUDE_DIR=$HOME/src/poppler-science/libjpeg/include \
-    -DJPEG_LIBRARY=$HOME/src/poppler-science/libjpeg/lib/libjpeg.dylib \
+    -DJPEG_INCLUDE_DIR=$HOME/poppler-science/libjpeg/include \
+    -DJPEG_LIBRARY=$HOME/poppler-science/libjpeg/lib/libjpeg.dylib \
     -DENABLE_LIBOPENJPEG=unmaintained \
     -DENABLE_LCMS=OFF
   ```
